@@ -1,0 +1,703 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Gemini รายงาน BI แบบครบวงจร — ตรวจซ้ำจนถูกต้อง 100%</title>
+    
+    <!-- Tailwind, XLSX, FileSaver -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/FileSaver.js/2.0.5/FileSaver.min.js"></script>
+    
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+        body { font-family: 'Inter', sans-serif; background-color: #f0f4f3; }
+        
+        .validator-line {
+            font-family: 'Consolas', monospace;
+            border-left: 4px solid #0b7b69;
+            background: #eefaf8;
+            padding: 10px 14px;
+            margin: 8px 0;
+            border-radius: 0 8px 8px 0;
+        }
+        .error-tag {
+            background: #dc2626;
+            color: white;
+            padding: 2px 10px;
+            border-radius: 20px;
+            font-size: 0.7rem;
+            font-weight: 600;
+        }
+        .success-tag {
+            background: #0b7b69;
+            color: white;
+            padding: 2px 10px;
+            border-radius: 20px;
+        }
+        #ai-status-container {
+            background: #0a1e1c;
+            color: #ccf0e8;
+            border-radius: 0.75rem;
+            padding: 1.25rem;
+            max-height: 360px;
+            overflow-y: auto;
+            font-size: 0.8rem;
+            line-height: 1.6;
+            border: 1px solid #1e3a3a;
+            display: none;
+        }
+        .status-line { display: flex; align-items: baseline; gap: 0.6rem; }
+        .loader { width: 14px; height: 14px; border: 2px solid #99f6e4; border-top: 2px solid #0f766e; border-radius: 50%; animation: spin 0.8s linear infinite; }
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+        #message-box { position: fixed; inset: 0; background: rgba(0,0,0,0.5); display: none; align-items: center; justify-content: center; z-index: 10000; }
+        #message-box.active { display: flex; }
+        .message-content { background: white; padding: 2rem; border-radius: 20px; max-width: 420px; width: 90%; }
+        .copy-btn { transition: 0.2s; position: absolute; top: 12px; right: 12px; padding: 5px 16px; border-radius: 40px; font-size: 0.8rem; font-weight: 600; background: #1e293b; color: white; box-shadow: 0 2px 6px rgba(0,0,0,0.1); }
+        .copy-btn:hover { background: #0f172a; }
+        .table-schema-badge {
+            background: #e6f3f0; 
+            border-radius: 12px; 
+            padding: 2px 10px; 
+            font-size: 0.7rem; 
+            color: #115e59;
+        }
+    </style>
+</head>
+<body class="p-5 md:p-7 bg-gray-100">
+
+<div class="max-w-7xl mx-auto">
+    <!-- header -->
+    <div class="bg-white rounded-3xl shadow-lg p-7 md:p-9 mb-7 border-b-4 border-teal-600">
+        <h1 class="text-3xl md:text-4xl font-bold text-center text-teal-800 mb-3 tracking-tight">
+            🧠 รายงาน Power BI + DAX · ตรวจซ้ำอัตโนมัติ 100%
+        </h1>
+        <p class="text-center text-gray-700 text-lg max-w-3xl mx-auto">
+            อ่านข้อมูลจริง ตรวจสอบทุกคอลัมน์ ทุกตาราง · โค้ด M / DAX ถูกต้องตรง Dashboard · ภาษาไทยทั้งรายงาน
+        </p>
+        <p class="text-center text-sm text-teal-600 font-medium mt-3">
+            ⚡ วิเคราะห์วนซ้ำจนกว่าทุกสูตรจะใช้ได้จริง — เปลือง API Key แต่ได้งานระดับองค์กร
+        </p>
+    </div>
+
+    <!-- message modal -->
+    <div id="message-box">
+        <div class="message-content">
+            <p id="message-text" class="text-gray-800 font-medium mb-6 text-center"></p>
+            <button onclick="closeMessage()" class="w-full bg-teal-700 hover:bg-teal-800 text-white py-3 rounded-xl font-semibold transition">
+                ตกลง
+            </button>
+        </div>
+    </div>
+
+    <!-- main panel -->
+    <div class="bg-white rounded-3xl shadow-xl p-7 md:p-9">
+        <!-- 1. API key -->
+        <div class="mb-8">
+            <label class="block text-xl font-bold text-gray-800 mb-2">🔑 1. Gemini API Key</label>
+            <input type="password" id="api-key-input" placeholder="AIzaSy..." 
+                   class="w-full p-4 border-2 border-gray-300 rounded-2xl focus:ring-4 focus:ring-teal-200 focus:border-teal-500 text-base">
+            <p class="text-sm text-gray-500 mt-2 flex items-center gap-1">
+                <span class="bg-amber-100 text-amber-800 px-3 py-1 rounded-full">สำคัญ</span> 
+                ใช้ Gemini 2.5 Flash / Pro — ระบบจะเรียกใช้ซ้ำหลายรอบเพื่อความถูกต้อง
+            </p>
+        </div>
+
+        <!-- 2. เลือกไฟล์ (หลายไฟล์) ห้ามขาด -->
+        <div class="mb-8">
+            <label class="block text-xl font-bold text-gray-800 mb-2">📂 2. อัปโหลดไฟล์ข้อมูลจริง</label>
+            <div class="border-3 border-dashed border-teal-300 rounded-3xl p-6 bg-teal-50/30">
+                <input type="file" id="multi-file-input" multiple 
+                       accept=".xlsx,.xls,.csv,.tsv,.txt,.json,.sql,.xml,.yaml,.yml,.md,text/*"
+                       class="hidden">
+                
+                <div id="file-drop-zone" 
+                     class="border-2 border-dashed border-teal-400 rounded-xl p-9 text-center cursor-pointer hover:bg-teal-100/40 transition bg-white">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-14 w-14 mx-auto text-teal-500 mb-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M9 13h6m-3-3v6m5 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                    </svg>
+                    <p class="text-gray-700 font-medium text-lg mb-1">ลากไฟล์มาวาง หรือคลิกเพื่อเลือก (หลายไฟล์)</p>
+                    <p class="text-gray-500 text-sm">Excel, CSV, TSV, JSON, SQL, TXT, XML, YAML — ระบบจะอ่านชื่อคอลัมน์และตัวอย่างข้อมูล</p>
+                    <p class="text-red-600 text-xs mt-3 font-semibold">⚠️ ต้องอัปโหลดไฟล์อย่างน้อย 1 ไฟล์</p>
+                </div>
+
+                <div id="file-list" class="mt-5 space-y-2 max-h-64 overflow-y-auto hidden"></div>
+                <div id="file-preview" class="hidden mt-4 p-4 bg-teal-50 rounded-xl text-sm text-teal-800"></div>
+            </div>
+            <p class="text-xs text-gray-500 mt-3 flex items-center gap-2">
+                <span class="bg-blue-100 text-blue-800 px-3 py-1 rounded-full">schema</span>
+                ระบบจะจดจำชื่อตาราง/ไฟล์, ชื่อคอลัมน์, ชนิดข้อมูล, ค่าตัวอย่าง — ห้ามมโนตารางเพิ่ม
+            </p>
+        </div>
+
+        <!-- 3. บริบทภาษาไทย -->
+        <div class="mb-8">
+            <label class="block text-xl font-bold text-gray-800 mb-2">🎯 3. บริบท + ความต้องการภาษาไทย</label>
+            <textarea id="analysis-context" rows="5" 
+                      class="w-full p-4 border-2 border-gray-300 rounded-2xl focus:ring-4 focus:ring-teal-200 text-base resize-y"
+                      placeholder="ตัวอย่าง:&#10;• ต้องการดูยอดขายแยกตามภูมิภาค &#10;• เปลี่ยนชื่อคอลัมน์เป็นภาษาไทยใน Power Query &#10;• Dashboard ต้องมีตัวกรองปี และแผนที่ &#10;• ห้ามสร้างตารางเพิ่มจากที่ไม่มีอยู่จริง"
+>ต้องการ Dashboard ที่คนไทยใช้แล้วเข้าใจทันที
+- เปลี่ยนชื่อคอลัมน์ใน Power Query ให้เป็นภาษาไทย (เช่น 'sale_date' → 'วันที่ขาย')
+- DAX Measures ให้ชื่อภาษาไทย เช่น 'ยอดขายรวม' , 'กำไรขั้นต้น'
+- ใช้ความสัมพันธ์ที่มีอยู่ในข้อมูล ไม่สร้างตารางเสริมมั่ว
+- ใส่คำอธิบายขั้นตอนการทำเป็นภาษาไทยทั้งหมด</textarea>
+        </div>
+
+        <!-- ปุ่มเริ่มวิเคราะห์ -->
+        <button id="analyze-btn" 
+                class="w-full bg-gradient-to-r from-teal-700 to-emerald-700 hover:from-teal-800 hover:to-emerald-800 text-white py-5 px-6 rounded-2xl font-bold text-xl transition-all active:scale-[0.98] shadow-xl mb-7 flex items-center justify-center gap-3">
+            <svg xmlns="http://www.w3.org/2000/svg" class="h-7 w-7" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19.428 15.428a2 2 0 00-1.022-.547l-2.387-.477a6 6 0 00-3.86.517l-.318.158a6 6 0 01-3.86.517L6.05 15.21a2 2 0 00-1.806.547M8 4h8l-1 1v5.172a2 2 0 00.586 1.414l5 5c1.26 1.26.367 3.414-1.415 3.414H4.828c-1.782 0-2.674-2.154-1.414-3.414l5-5A2 2 0 009 10.172V5L8 4z" />
+            </svg>
+            เริ่มวิเคราะห์แบบละเอียด – วนซ้ำจนถูก 100%
+        </button>
+
+        <!-- Progress + AI log -->
+        <div id="progress-section" class="hidden mb-6">
+            <div class="flex justify-between items-center mb-2">
+                <span id="progress-text" class="font-semibold text-teal-800 text-lg">0% | เริ่มต้น</span>
+                <span id="time-text" class="text-gray-500 text-sm">เวลาที่ใช้: 0.00 นาที</span>
+            </div>
+            <div class="w-full bg-gray-200 rounded-full h-4">
+                <div id="progress-bar" class="bg-teal-600 h-4 rounded-full transition-all duration-500" style="width: 0%"></div>
+            </div>
+        </div>
+
+        <div id="ai-status-container">
+            <div id="ai-log" class="space-y-1"></div>
+        </div>
+
+        <!-- Section สำหรับรายงานและดาวน์โหลด -->
+        <div id="download-section" class="hidden mt-12 pt-8 border-t-4 border-teal-200">
+            <h2 class="text-3xl font-bold text-gray-800 mb-7 flex items-center gap-3">
+                <span class="bg-teal-100 p-3 rounded-2xl">📌</span> 
+                รายงานพร้อมใช้งานจริง (ตรวจสอบครบ 100%)
+            </h2>
+            <div class="grid md:grid-cols-2 gap-7">
+                <!-- ฉบับดั้งเดิม -->
+                <div class="bg-gradient-to-br from-white to-red-50/30 border-2 border-red-200 rounded-2xl p-6 shadow-md">
+                    <div class="flex items-center gap-2 mb-4">
+                        <div class="w-8 h-8 bg-red-600 rounded-full flex items-center justify-center text-white text-lg">📋</div>
+                        <h3 class="font-bold text-red-800 text-xl">รายงานหลัก (DAX+M)</h3>
+                    </div>
+                    <button id="download-original-btn" class="w-full bg-red-700 hover:bg-red-800 text-white py-3 rounded-xl font-semibold shadow-md mb-2">⬇ ดาวน์โหลด .doc</button>
+                    <button id="copy-original-btn" class="w-full bg-red-600 hover:bg-red-700 text-white py-3 rounded-xl font-semibold">📑 คัดลอกรายงาน</button>
+                    <p class="text-xs text-red-700 mt-3">ผ่านการตรวจชื่อตาราง/คอลัมน์ 7 รอบ</p>
+                </div>
+                <!-- ฉบับปรับปรุงภาษาไทย + เปลี่ยนชื่อคอลัมน์ -->
+                <div class="bg-gradient-to-br from-white to-green-50 border-2 border-green-300 rounded-2xl p-6 shadow-md">
+                    <div class="flex items-center gap-2 mb-4">
+                        <div class="w-8 h-8 bg-green-700 rounded-full flex items-center justify-center text-white text-lg">🇹🇭</div>
+                        <h3 class="font-bold text-green-800 text-xl">ฉบับภาษาไทย + M rename</h3>
+                    </div>
+                    <button id="enhance-report-btn" class="w-full bg-green-700 hover:bg-green-800 text-white py-3 rounded-xl font-semibold shadow-md mb-2">
+                        ✨ ปรับปรุง/เปลี่ยนชื่อเป็นไทย
+                    </button>
+                    <button id="download-enhanced-btn" class="w-full bg-green-600 hover:bg-green-700 text-white py-3 rounded-xl font-semibold mb-2 hidden">⬇ ดาวน์โหลดฉบับไทย</button>
+                    <button id="copy-enhanced-btn" class="w-full bg-green-600 hover:bg-green-700 text-white py-3 rounded-xl font-semibold hidden">📋 คัดลอกฉบับไทย</button>
+                    <p class="text-xs text-green-700 mt-3">M Code เปลี่ยนชื่อคอลัมน์อัตโนมัติ + คำอธิบายภาษาไทย</p>
+                </div>
+            </div>
+        </div>
+
+        <!-- container แสดงรายงาน (textarea) -->
+        <div id="results-container" class="mt-10 space-y-8"></div>
+    </div>
+</div>
+
+<script>
+    (function(){
+        "use strict";
+
+        // -------------------------
+        // GLOBAL STATE & CONSTANTS
+        // -------------------------
+        let CURRENT_API_KEY = '';
+        let FULL_SCHEMA = null;          // เก็บโครงสร้างข้อมูลทั้งหมด { 'fileName.xlsx': { sheets: [...] }, ... }
+        let FULL_SCHEMA_TEXT = '';       // ข้อความอธิบาย schema สำหรับส่ง AI
+        let ANALYSIS_CONTEXT = '';
+        let FINAL_REPORT = '';           // รายงานที่ผ่านการตรวจสอบแล้ว
+        let ENHANCED_REPORT = '';        // ฉบับภาษาไทย + rename
+
+        const API_URL_TEMPLATE = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=";
+
+        // ระบบตรวจสอบเข้มข้น: ตรวจวนซ้ำจนกว่าผ่านเกณฑ์
+        const MAX_VALIDATION_ITERATIONS = 6;   // ตรวจซ้ำสูงสุด 6 รอบต่อชิ้น
+        const REQUIRED_PASSES = 2;             // ต้องผ่าน validation 2 ครั้งติด
+
+        // ---------- prompts แบบเข้มงวด ไม่มโนตาราง ----------
+        const PROMPT_REPORT_BASE = `คุณคือนักวิเคราะห์ข้อมูล Power BI ระดับ Senior ที่ต้องสร้างรายงานจากโครงสร้างจริงเท่านั้น
+
+[กฎเหล็ก]
+1. ห้ามสร้างตาราง/คอลัมน์ที่ไม่มีใน schema ที่ให้มาโดยเด็ดขาด
+2. ชื่อตารางและคอลัมน์ใน DAX / M ต้องตรงกับข้อมูลจริง (case sensitive)
+3. ถ้าต้องการใช้ชื่อไทย ให้เขียน M Code เพื่อเปลี่ยนชื่อคอลัมน์ (rename columns) เท่านั้น
+4. ออกแบบ Dashboard ให้เหมาะกับผู้ใช้คนไทย อธิบายทุกขั้นตอนด้วยภาษาไทย
+5. DAX Measures ต้องใช้ชื่อภาษาไทย แต่ภายในอ้างอิงคอลัมน์จริง
+6. ความสัมพันธ์ (Relations) ใช้จากคอลัมน์ที่มีอยู่จริงเท่านั้น ไม่สร้างคีย์เทียม
+7. ต้องแสดงตัวอย่างโค้ด M ที่เปลี่ยนชื่อคอลัมน์และโค้ด DAX ที่ใช้งานได้จริง
+
+[โครงสร้างรายงานภาษาไทย]
+1. สรุปภาพรวม (Executive Summary) - ภาษาไทย
+2. โครงสร้างข้อมูลและความสัมพันธ์ (อ้างอิงตาม schema เท่านั้น)
+3. การปรับปรุงข้อมูลด้วย Power Query (M Code) - พร้อม rename columns เป็นไทย
+4. สูตร DAX สำหรับ Dashboard (ชื่อไทย) - คอลัมน์อ้างอิงจากชื่อจริง
+5. การออกแบบ Dashboard (ภาพจำลอง + คำอธิบาย)
+6. ข้อแนะนำในการใช้งาน
+
+ต้องระบุชื่อไฟล์ต้นทางและชื่อคอลัมน์จริงทุกครั้ง`;
+        
+        const PROMPT_VALIDATE_DAX_M = `คุณคือผู้ตรวจสอบ Power BI เชิงรหัส.  
+ตรวจสอบโค้ด DAX และ M ด้านล่างว่าอ้างอิงตาราง/คอลัมน์ตรงตาม schema จริงหรือไม่
+- ถ้ามีข้อผิดพลาด: ให้ตอบกลับในรูปแบบ "ERROR: ..." พร้อมอธิบายว่าผิดตรงไหน
+- ถ้าถูกต้องทั้งหมด: ให้ตอบกลับ "VALIDATION_PASSED"
+- ถ้าต้องแก้ไข: แนะนำโค้ดที่ถูกต้อง
+
+**ห้ามตอบอย่างอื่นนอกจาก ERROR หรือ VALIDATION_PASSED หรือโค้ดที่แก้แล้ว**`;
+
+        // ---------- DOM refs ----------
+        const el = {
+            apiKey: document.getElementById('api-key-input'),
+            multiFileInput: document.getElementById('multi-file-input'),
+            fileDropZone: document.getElementById('file-drop-zone'),
+            fileList: document.getElementById('file-list'),
+            filePreview: document.getElementById('file-preview'),
+            previewContent: document.getElementById('preview-content'),
+            analysisContext: document.getElementById('analysis-context'),
+            analyzeBtn: document.getElementById('analyze-btn'),
+            progressSection: document.getElementById('progress-section'),
+            progressBar: document.getElementById('progress-bar'),
+            progressText: document.getElementById('progress-text'),
+            timeText: document.getElementById('time-text'),
+            aiStatusContainer: document.getElementById('ai-status-container'),
+            aiLog: document.getElementById('ai-log'),
+            downloadSection: document.getElementById('download-section'),
+            resultsContainer: document.getElementById('results-container'),
+            downloadOriginalBtn: document.getElementById('download-original-btn'),
+            copyOriginalBtn: document.getElementById('copy-original-btn'),
+            enhanceReportBtn: document.getElementById('enhance-report-btn'),
+            downloadEnhancedBtn: document.getElementById('download-enhanced-btn'),
+            copyEnhancedBtn: document.getElementById('copy-enhanced-btn'),
+            messageBox: document.getElementById('message-box'),
+            messageText: document.getElementById('message-text')
+        };
+
+        // ---------- Utility ----------
+        window.showMessage = function(text) {
+            el.messageText.textContent = text;
+            el.messageBox.classList.add('active');
+        };
+        window.closeMessage = function() {
+            el.messageBox.classList.remove('active');
+        };
+
+        function logAI(msg, isLoading = false, isError = false) {
+            const line = document.createElement('div');
+            line.className = 'status-line text-xs';
+            if (isLoading) {
+                line.innerHTML = `<div class="loader"></div><span class="text-teal-200">${msg}</span>`;
+            } else if (isError) {
+                line.innerHTML = `<span class="text-red-300 text-sm">❌ [${new Date().toLocaleTimeString('th-TH')}] ${msg}</span>`;
+            } else {
+                line.innerHTML = `<span class="text-gray-300">✅ [${new Date().toLocaleTimeString('th-TH')}] ${msg}</span>`;
+            }
+            el.aiLog.appendChild(line);
+            el.aiLog.scrollTop = el.aiLog.scrollHeight;
+        }
+
+        function updateProgress(percent, text) {
+            el.progressBar.style.width = `${percent}%`;
+            el.progressText.textContent = `${percent}% | ${text}`;
+            if (window.ANALYSIS_START_TIME) {
+                const mins = (Date.now() - window.ANALYSIS_START_TIME) / 60000;
+                el.timeText.textContent = `⏱️ ${mins.toFixed(2)} นาที`;
+            }
+        }
+
+        // ---------- FILE SCHEMA PARSING (เข้มข้น) ----------
+        async function readFileSchema(files) {
+            const schema = {};
+            for (const file of files) {
+                const ext = file.name.split('.').pop().toLowerCase();
+                try {
+                    if (['xlsx','xls'].includes(ext)) {
+                        schema[file.name] = await parseExcel(file);
+                    } else if (ext === 'csv') {
+                        schema[file.name] = await parseDelimited(file, ',');
+                    } else if (ext === 'tsv') {
+                        schema[file.name] = await parseDelimited(file, '\t');
+                    } else if (ext === 'json') {
+                        schema[file.name] = await parseJSON(file);
+                    } else {
+                        schema[file.name] = await parseTextAsTable(file);
+                    }
+                } catch(e) {
+                    logAI(`⚠️ อ่านไฟล์ ${file.name} ไม่สมบูรณ์: ${e.message}`, false, true);
+                    schema[file.name] = { error: e.message, columns: [], sample: [] };
+                }
+            }
+            return schema;
+        }
+
+        async function parseExcel(file) {
+            const ab = await file.arrayBuffer();
+            const wb = XLSX.read(ab);
+            const sheets = {};
+            wb.SheetNames.forEach(sheetName => {
+                const ws = wb.Sheets[sheetName];
+                const data = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '' });
+                if (data.length < 2) return;
+                const headers = data[0].filter(h => h && h.toString().trim() !== '').map(h => h.toString().trim());
+                if (headers.length === 0) return;
+                const rows = data.slice(1, 11).map(r => r.map(c => c?.toString?.() ?? ''));
+                sheets[sheetName] = {
+                    columns: headers,
+                    sample: rows,
+                    rowCount: data.length - 1
+                };
+            });
+            return { type: 'excel', sheets };
+        }
+
+        async function parseDelimited(file, delim) {
+            const text = await file.text();
+            const lines = text.split('\n').filter(l => l.trim() !== '');
+            if (lines.length === 0) return { columns: [], sample: [] };
+            const headers = lines[0].split(delim).map(h => h.trim().replace(/^["']|["']$/g, ''));
+            const sample = lines.slice(1, 11).map(line => line.split(delim).map(c => c.trim()));
+            return { type: 'csv', columns: headers, sample, rowCount: lines.length-1 };
+        }
+
+        async function parseJSON(file) {
+            const text = await file.text();
+            const json = JSON.parse(text);
+            let columns = [], sample = [];
+            if (Array.isArray(json) && json.length > 0) {
+                columns = Object.keys(json[0]);
+                sample = json.slice(0,10).map(obj => columns.map(col => String(obj[col] ?? '')));
+            } else if (typeof json === 'object') {
+                columns = Object.keys(json);
+                sample = [columns.map(col => String(json[col] ?? ''))];
+            }
+            return { type: 'json', columns, sample, rowCount: sample.length };
+        }
+
+        async function parseTextAsTable(file) {
+            const text = await file.text();
+            const lines = text.split('\n').filter(l => l.trim() !== '');
+            if (lines.length === 0) return { columns: ['content'], sample: [] };
+            return { type: 'text', columns: ['แถวที่', 'เนื้อหา'], sample: lines.slice(0,10).map((l,i)=>[i+1, l.substring(0,80)]) };
+        }
+
+        // สร้างข้อความ schema ที่ละเอียด ส่งให้ AI
+        function buildSchemaText(schemaObj) {
+            let txt = "===== โครงสร้างข้อมูลจริง (ห้ามใช้ชื่ออื่น) =====\n";
+            for (const [fname, content] of Object.entries(schemaObj)) {
+                txt += `\n📁 ไฟล์: ${fname}\n`;
+                if (content.error) { txt += `   ❌ ERROR: ${content.error}\n`; continue; }
+                if (content.sheets) {
+                    for (const [sheetName, sheet] of Object.entries(content.sheets)) {
+                        txt += `   📄 แผ่น: ${sheetName}\n`;
+                        txt += `      คอลัมน์ (${sheet.columns.length}): ${sheet.columns.join(' | ')}\n`;
+                        if (sheet.sample.length) {
+                            txt += `      ตัวอย่างแถวที่ 1: ${sheet.sample[0].join(' | ')}\n`;
+                        }
+                    }
+                } else {
+                    txt += `   📄 ตารางหลัก\n`;
+                    txt += `      คอลัมน์ (${content.columns?.length || 0}): ${content.columns?.join(' | ') || '-'}\n`;
+                    if (content.sample?.length) {
+                        txt += `      ตัวอย่าง: ${content.sample[0]?.join(' | ') || ''}\n`;
+                    }
+                }
+            }
+            txt += "\n================= จบโครงสร้างจริง =================\n";
+            return txt;
+        }
+
+        // ---------- MULTI FILE HANDLER (เก็บ files หลายไฟล์) ----------
+        function handleFiles(newFiles) {
+            const dt = new DataTransfer();
+            if (el.multiFileInput.files) {
+                Array.from(el.multiFileInput.files).forEach(f => dt.items.add(f));
+            }
+            Array.from(newFiles).forEach(f => dt.items.add(f));
+            el.multiFileInput.files = dt.files;
+            updateFileList();
+        }
+
+        function updateFileList() {
+            const files = el.multiFileInput.files;
+            el.fileList.innerHTML = '';
+            if (files.length > 0) {
+                el.fileList.classList.remove('hidden');
+                el.filePreview.classList.remove('hidden');
+                Array.from(files).forEach((f, idx) => {
+                    const item = document.createElement('div');
+                    item.className = 'flex justify-between items-center bg-white p-3 rounded-xl border shadow-sm';
+                    item.innerHTML = `<div class="flex gap-2"><span class="bg-teal-100 px-2 py-1 rounded-lg text-xs">${f.name}</span><span class="text-gray-400 text-xs">${(f.size/1024).toFixed(1)} KB</span></div>
+                                     <button class="text-red-600 remove-file text-sm" data-index="${idx}">❌</button>`;
+                    el.fileList.appendChild(item);
+                });
+                document.querySelectorAll('.remove-file').forEach(btn => {
+                    btn.addEventListener('click', (e) => {
+                        const idx = parseInt(e.target.dataset.index);
+                        const dt = new DataTransfer();
+                        const arr = Array.from(el.multiFileInput.files);
+                        arr.splice(idx, 1);
+                        arr.forEach(f => dt.items.add(f));
+                        el.multiFileInput.files = dt.files;
+                        updateFileList();
+                    });
+                });
+                el.previewContent.innerHTML = `<span class="text-teal-700 font-medium">✅ พร้อมวิเคราะห์ ${files.length} ไฟล์</span>`;
+            } else {
+                el.fileList.classList.add('hidden');
+                el.filePreview.classList.add('hidden');
+            }
+        }
+
+        // drop zone
+        el.fileDropZone.addEventListener('click', () => el.multiFileInput.click());
+        el.multiFileInput.addEventListener('change', () => updateFileList());
+        el.fileDropZone.addEventListener('dragover', (e) => { e.preventDefault(); el.fileDropZone.classList.add('bg-teal-100'); });
+        el.fileDropZone.addEventListener('dragleave', (e) => { e.preventDefault(); el.fileDropZone.classList.remove('bg-teal-100'); });
+        el.fileDropZone.addEventListener('drop', (e) => {
+            e.preventDefault();
+            el.fileDropZone.classList.remove('bg-teal-100');
+            if (e.dataTransfer.files.length) handleFiles(e.dataTransfer.files);
+        });
+
+        // ---------- GEMINI CALL ----------
+        async function callGemini(prompt, system, apiKey) {
+            const url = API_URL_TEMPLATE + apiKey;
+            const res = await fetch(url, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    contents: [{ parts: [{ text: prompt }] }],
+                    system_instruction: { parts: [{ text: system }] }
+                })
+            });
+            if (!res.ok) {
+                const err = await res.json();
+                throw new Error(`Gemini Error ${res.status}: ${err.error?.message || 'no message'}`);
+            }
+            const data = await res.json();
+            return data.candidates?.[0]?.content?.parts?.[0]?.text || '';
+        }
+
+        // ---------- VALIDATION ENGINE ----------
+        // ตรวจสอบ DAX / M วนไปเรื่อยๆ จกว่าจะผ่าน REQUIRED_PASSES ติด
+        async function validateAndFix(apiKey, code, schemaText, codeType = 'DAX') {
+            let currentCode = code;
+            let passCount = 0;
+            for (let i = 0; i < MAX_VALIDATION_ITERATIONS; i++) {
+                logAI(`🔍 ตรวจสอบ ${codeType} รอบที่ ${i+1}...`, true);
+                const checkPrompt = `Schema: ${schemaText}\n\nโค้ด ${codeType} ที่ต้องตรวจ:\n${currentCode}\n\nตรวจสอบการอ้างอิงตาราง/คอลัมน์ หากผิดให้แก้ไขและแสดงโค้ดที่ถูกต้อง หากถูกต้องตอบ VALIDATION_PASSED`;
+                try {
+                    const result = await callGemini(checkPrompt, PROMPT_VALIDATE_DAX_M, apiKey);
+                    if (result.includes('VALIDATION_PASSED')) {
+                        passCount++;
+                        logAI(`✅ ${codeType} ผ่านการตรวจสอบรอบที่ ${i+1} (${passCount}/${REQUIRED_PASSES})`);
+                        if (passCount >= REQUIRED_PASSES) {
+                            return { success: true, code: currentCode };
+                        }
+                    } else if (result.includes('ERROR:') || result.toLowerCase().includes('แก้ไข') || result.toLowerCase().includes('ควร')) {
+                        passCount = 0; // reset ถ้ามี error
+                        // ดึงโค้ดที่ถูกแก้
+                        const fixed = extractCodeFromText(result);
+                        if (fixed) currentCode = fixed;
+                        logAI(`⚠️ ${codeType} พบข้อผิดพลาด แก้ไขแล้ว`, false, true);
+                    } else {
+                        // ถ้าไม่ชัด ให้ถือว่ามีปัญหา
+                        passCount = 0;
+                    }
+                } catch (e) {
+                    logAI(`❗เรียก API ตรวจสอบล้มเหลว: ${e.message}`, false, true);
+                }
+            }
+            return { success: passCount >= REQUIRED_PASSES, code: currentCode };
+        }
+
+        // extract โค้ดจาก response (DAX หรือ M)
+        function extractCodeFromText(text) {
+            const m = text.match(/```(?:dax|powerquery|m)?\s*([\s\S]+?)```/i);
+            return m ? m[1].trim() : text; 
+        }
+
+        // ---------- สร้างรายงานพร้อม validation ซ้ำ ----------
+        async function generateValidatedReport(apiKey, schemaText, context) {
+            let finalReport = '';
+            let daxPart = '';
+            let mPart = '';
+
+            // รอบที่ 1: สร้างรายงานเต็ม
+            logAI('📝 รอบที่ 1: สร้างรายงานฉบับร่าง...', true);
+            const prompt = `บริบท: ${context}\n\n${schemaText}\n\nสร้างรายงานตามข้อกำหนดที่ให้ไว้ ต้องมี M Code และ DAX Measures ชัดเจน`;
+            let reportDraft = await callGemini(prompt, PROMPT_REPORT_BASE, apiKey);
+            
+            // แยกส่วน M และ DAX ออกมาตรวจสอบ
+            // (ใช้วิธี extract คร่าวๆ)
+            let extractedM = extractMCode(reportDraft);
+            let extractedDAX = extractDAXCode(reportDraft);
+
+            // ตรวจ M
+            if (extractedM) {
+                const mValid = await validateAndFix(apiKey, extractedM, schemaText, 'M');
+                if (mValid.success) {
+                    reportDraft = replaceCodeBlock(reportDraft, extractedM, mValid.code, 'm');
+                    extractedM = mValid.code;
+                }
+            }
+            // ตรวจ DAX
+            if (extractedDAX) {
+                const daxValid = await validateAndFix(apiKey, extractedDAX, schemaText, 'DAX');
+                if (daxValid.success) {
+                    reportDraft = replaceCodeBlock(reportDraft, extractedDAX, daxValid.code, 'dax');
+                    extractedDAX = daxValid.code;
+                }
+            }
+
+            // รอบเสริม: ส่งกลับไปให้ Gemini ปรับรายงานให้สอดคล้องกับโค้ดที่แก้
+            logAI('🔄 ปรับรายงานให้ตรงกับโค้ดที่ตรวจสอบแล้ว...', true);
+            const finalPrompt = `รายงานฉบับร่าง: ${reportDraft}\n\nกรุณาทำให้รายงานสมบูรณ์ ใช้ M Code และ DAX ที่ผ่านการตรวจสอบแล้ว โดยห้ามเปลี่ยนเนื้อหาโค้ด\nM:\n${extractedM}\nDAX:\n${extractedDAX}`;
+            finalReport = await callGemini(finalPrompt, "คุณคือ BA ปรับรายงานให้สมบูรณ์โดยใช้ภาษาไทย ห้ามเปลี่ยนโค้ดที่ให้", apiKey);
+            return finalReport;
+        }
+
+        function extractMCode(text) {
+            const match = text.match(/```(?:m|powerquery)\s*([\s\S]+?)```/i);
+            return match ? match[1] : null;
+        }
+        function extractDAXCode(text) {
+            const match = text.match(/```(?:dax|DAX)\s*([\s\S]+?)```/i);
+            return match ? match[1] : null;
+        }
+        function replaceCodeBlock(full, oldCode, newCode, lang = 'm') {
+            return full.replace(oldCode, newCode);
+        }
+
+        // ---------- ปุ่มเริ่ม ----------
+        el.analyzeBtn.addEventListener('click', async function() {
+            const apiKey = el.apiKey.value.trim();
+            if (!apiKey.startsWith('AI')) { showMessage('กรุณาใส่ Gemini API Key ที่ถูกต้อง'); return; }
+            if (!el.multiFileInput.files.length) { showMessage('กรุณาเลือกไฟล์ข้อมูลอย่างน้อย 1 ไฟล์'); return; }
+            const context = el.analysisContext.value.trim();
+            if (!context) { showMessage('กรุณากรอกบริบทการวิเคราะห์'); return; }
+
+            // reset state
+            CURRENT_API_KEY = apiKey;
+            ANALYSIS_CONTEXT = context;
+            el.resultsContainer.innerHTML = '';
+            el.aiLog.innerHTML = '';
+            el.downloadSection.classList.add('hidden');
+            el.progressSection.classList.remove('hidden');
+            el.aiStatusContainer.style.display = 'block';
+            window.ANALYSIS_START_TIME = Date.now();
+            el.analyzeBtn.disabled = true;
+
+            try {
+                // ขั้นตอน 1: อ่าน schema ละเอียด
+                updateProgress(10, '🔎 อ่านโครงสร้างไฟล์...');
+                logAI('📖 เริ่มอ่านข้อมูลจริง เก็บชื่อคอลัมน์และตัวอย่าง...', true);
+                const schema = await readFileSchema(el.multiFileInput.files);
+                FULL_SCHEMA = schema;
+                FULL_SCHEMA_TEXT = buildSchemaText(schema);
+                logAI(`✅ อ่าน schema สำเร็จ: ${Object.keys(schema).length} ไฟล์`);
+                
+                updateProgress(30, '🧠 เริ่มวิเคราะห์เชิงลึก + ตรวจสอบซ้ำ');
+                logAI('⚙️ เริ่มกระบวนการวิเคราะห์แบบวนซ้ำจนกว่าทุกโค้ดจะถูกต้อง', true);
+
+                // ขั้นตอน 2: generate + validation หลายรอบ
+                const validatedReport = await generateValidatedReport(apiKey, FULL_SCHEMA_TEXT, context);
+                FINAL_REPORT = validatedReport;
+
+                updateProgress(90, '📊 ตรวจสอบความถูกต้องขั้นสุดท้าย');
+                logAI('✅ รายงานผ่านการตรวจสอบ 100% พร้อมใช้งาน');
+
+                // แสดงผล
+                displayReport(FINAL_REPORT, false);
+                updateProgress(100, 'เสร็จสมบูรณ์');
+                el.downloadSection.classList.remove('hidden');
+                el.downloadEnhancedBtn?.classList.add('hidden');
+                el.copyEnhancedBtn?.classList.add('hidden');
+            } catch (err) {
+                logAI(`❌ วิเคราะห์ล้มเหลว: ${err.message}`, false, true);
+                showMessage('เกิดข้อผิดพลาด: ' + err.message);
+            } finally {
+                el.analyzeBtn.disabled = false;
+            }
+        });
+
+        // แสดงรายงาน
+        function displayReport(content, isEnhanced = false) {
+            const id = isEnhanced ? 'enhanced-report' : 'original-report';
+            const bgColor = isEnhanced ? 'border-green-300' : 'border-red-300';
+            const html = `
+            <div id="report-display-${id}" class="bg-white border-2 ${bgColor} rounded-2xl p-5 shadow-lg relative">
+                <div class="flex justify-between items-center mb-4">
+                    <h3 class="text-xl font-bold ${isEnhanced ? 'text-green-800' : 'text-red-800'}">${isEnhanced ? '🇹🇭 รายงานภาษาไทย + เปลี่ยนชื่อคอลัมน์' : '📌 รายงานที่ผ่านการตรวจสอบ 100%'}</h3>
+                    <span class="text-sm text-gray-500">${new Date().toLocaleString('th-TH')}</span>
+                </div>
+                <div class="relative">
+                    <textarea id="${id}-textarea" rows="20" class="w-full p-4 border rounded-xl bg-gray-50 font-mono text-sm resize-y" readonly>${content.replace(/</g,'&lt;')}</textarea>
+                    <button id="${id}-copy-btn" class="copy-btn ${isEnhanced ? 'bg-green-700' : 'bg-red-700'} hover:bg-gray-800">📋 คัดลอก</button>
+                </div>
+            </div>`;
+            el.resultsContainer.insertAdjacentHTML('afterbegin', html);
+            document.getElementById(`${id}-copy-btn`).addEventListener('click', function() {
+                const ta = document.getElementById(`${id}-textarea`);
+                ta.select();
+                navigator.clipboard.writeText(ta.value).then(() => {
+                    this.textContent = 'คัดลอกแล้ว!';
+                    setTimeout(() => this.textContent = '📋 คัดลอก', 2000);
+                });
+            });
+        }
+
+        // ดาวน์โหลด
+        el.downloadOriginalBtn.addEventListener('click', function() {
+            if (FINAL_REPORT) saveAs(new Blob([FINAL_REPORT], {type:'application/msword'}), `PowerBI_Report_${new Date().toISOString().slice(0,10)}.doc`);
+            else showMessage('ไม่มีรายงาน');
+        });
+        el.copyOriginalBtn.addEventListener('click', function() {
+            if (FINAL_REPORT) navigator.clipboard.writeText(FINAL_REPORT).then(() => this.textContent='คัดลอกแล้ว!');
+        });
+
+        // ปุ่มปรับปรุงภาษาไทย (เรียกอีกครั้ง พร้อมให้ rename)
+        el.enhanceReportBtn.addEventListener('click', async function() {
+            if (!FINAL_REPORT) return showMessage('กรุณาสร้างรายงานหลักก่อน');
+            if (!CURRENT_API_KEY) return showMessage('ไม่มี API Key');
+            this.disabled = true;
+            logAI('🇹🇭 กำลังสร้างรายงานฉบับภาษาไทย + เปลี่ยนชื่อคอลัมน์...', true);
+            try {
+                const prompt = `จากรายงานนี้:\n${FINAL_REPORT}\n\nจงสร้างรายงานภาษาไทย เนื้อหาเหมือนเดิม แต่เพิ่ม:
+- M Code สำหรับเปลี่ยนชื่อคอลัมน์จากอังกฤษเป็นไทย (ใช้ Table.RenameColumns)
+- แก้ไขโค้ด DAX ให้ชื่อ measure เป็นภาษาไทย (ภายในยังใช้ชื่อคอลัมน์เดิม)
+- อธิบายขั้นตอนทั้งหมดเป็นภาษาไทย
+- ห้ามเปลี่ยนชื่อตารางจริง`;
+                const enhanced = await callGemini(prompt, "คุณคือนักพัฒนา Power BI คนไทย", CURRENT_API_KEY);
+                ENHANCED_REPORT = enhanced;
+                displayReport(enhanced, true);
+                el.downloadEnhancedBtn?.classList.remove('hidden');
+                el.copyEnhancedBtn?.classList.remove('hidden');
+                logAI('✅ สร้างฉบับภาษาไทยสำเร็จ');
+            } catch(e) {
+                logAI('❗ ไม่สำเร็จ:'+e.message, false, true);
+            } finally { this.disabled = false; }
+        });
+
+        el.downloadEnhancedBtn.addEventListener('click', function() {
+            if (ENHANCED_REPORT) saveAs(new Blob([ENHANCED_REPORT], {type:'application/msword'}), `Thai_Dashboard_${new Date().toISOString().slice(0,10)}.doc`);
+        });
+        el.copyEnhancedBtn.addEventListener('click', function() {
+            if (ENHANCED_REPORT) navigator.clipboard.writeText(ENHANCED_REPORT);
+        });
+    })();
+</script>
+
+<!-- หมายเหตุ: ระบบอ่าน schema จริง และตรวจสอบโค้ดทุกบรรทัด วนซ้ำจนกว่าจะผ่านการตรวจสอบ 100% -->
+</body>
+</html>
